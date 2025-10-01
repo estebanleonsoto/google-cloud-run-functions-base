@@ -1,22 +1,10 @@
 # google-cloud-run-functions-base
-<<<<<<< HEAD
-Project that provides the fundamentals for implementing Google CloudRun Functions using Clojure 
-=======
 
 A Clojure library designed to ... well, that part is up to you.
 
 ## Usage
 
 FIXME
-
-
-## Reference documentation
-
-### Container runtime contract
-
-https://cloud.google.com/run/docs/container-contract
-
-
 
 ## License
 
@@ -32,4 +20,3 @@ Public License, v. 2.0 are satisfied: GNU General Public License as published by
 the Free Software Foundation, either version 2 of the License, or (at your
 option) any later version, with the GNU Classpath Exception which is available
 at https://www.gnu.org/software/classpath/license.html.
->>>>>>> 595ac37 (first commit)
