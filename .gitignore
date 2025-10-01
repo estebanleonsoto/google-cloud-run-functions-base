@@ -1,3 +1,7 @@
+/target
+/classes
+/checkouts
+profiles.clj
 pom.xml
 pom.xml.asc
 *.jar
@@ -6,9 +10,13 @@ pom.xml.asc
 /classes/
 /target/
 /checkouts/
-.lein-deps-sum
-.lein-repl-history
-.lein-plugins/
-.lein-failures
 .nrepl-port
 .cpcache/
+*.iml
+/.lein-*
+/.prepl-port
+.hgignore
+.hg/
+.clj-kondo/
+.idea/
+target/
