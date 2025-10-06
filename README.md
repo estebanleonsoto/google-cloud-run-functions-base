@@ -6,6 +6,11 @@ A Clojure library designed to ... well, that part is up to you.
 
 FIXME
 
+## Development notes
+
+* Return something when the load of the server is too high
+  * how to detect that?
+
 ## License
 
 Copyright © 2025 FIXME
