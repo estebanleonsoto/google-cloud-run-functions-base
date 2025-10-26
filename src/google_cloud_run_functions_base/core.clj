@@ -1,7 +1,7 @@
 (ns google-cloud-run-functions-base.core
   (:require [clojure.core.async :as a :refer [<!! >!! <! >!]]
             [clojure.string :refer [split trim]])
-  (:import (java.io BufferedReader InputStreamReader)
+  (:import (java.io BufferedReader InputStreamReader InputStream)
            (java.net ServerSocket)))
 
 (def server-socket* (atom nil))
@@ -44,10 +44,6 @@
      (let [[key value] (split line #": " 2)]
        (assoc-in request [:headers key] value)))
 
-   :body
-   (fn [line request]
-     (update request :body (fnil str "") (str line "\n")))
-
    :done
    (fn [_ request]
      request)
@@ -58,8 +54,10 @@
   ((line-parsers section) (trim line) request))
 
 (defn dispatch-request [request-data]
-  (let [{:keys [request client-socket]} request-data
+  (let [{:keys [request client-socket body-stream]} request-data
         out (.getOutputStream client-socket)
+        ;; Example: Read body from input stream if needed
+        ;; You can read the body-stream as needed here
         response-body (str "Hello! You requested " (:path request) " with method " (:method request) "\n")
         response (str "HTTP/1.1 200 OK\r\n"
                       "Content-Type: text/plain\r\n"
@@ -68,6 +66,7 @@
                       "\r\n"
                       response-body)]
     (println "dispatching request:" request)
+    (println "body-stream available:" body-stream)
     (.write out (.getBytes response))
     (.flush out)
     (println "Response sent to" (.getInetAddress client-socket))
@@ -80,40 +79,47 @@
   (a/go
     (while true
       (let [client-socket (<! http-read-channel)
-            in (BufferedReader. (InputStreamReader. (.getInputStream client-socket)))
+            input-stream (.getInputStream client-socket)
+            in (BufferedReader. (InputStreamReader. input-stream))
             out (.getOutputStream client-socket)]
         (try
           (println "Handling HTTP request from" (-> client-socket .getInetAddress .getHostAddress))
-          ;(dispatch-request
-          (loop [line (.readLine in)
-                 line-index 0
-                 section :first_line
-                 request {}]
-            (println "(" section "): " "'" line "' isNil?" (nil? line))
-            (if
-              (= line-index 50)
-              ;(or (= section :done)
-              ;      (nil? line))
-              (do
-                (println "Se jue!")
-                {
-                 :request       request
-                 :client-socket client-socket
-                 })
-              (recur
-                (.readLine in)
-                (inc line-index)
-                (cond
-                  (= section :first_line) :headers
-                  (and (= section :headers) (empty? line)) :body
-                  (nil? line) :done
-                  :else section)
-                ;(parse line section request)
-                request
-                )))
-          ;)
+          ;; Parse headers only, then pass the input stream for body reading
+          (let [parsed-request
+                (loop [line (.readLine in)
+                       section :first_line
+                       request {}]
+                  (println "(" section "): " "'" line "'")
+                  (cond
+                    ;; After headers, we hit an empty line - stop parsing and return
+                    (and (= section :headers) (empty? line))
+                    (do
+                      (println "Headers parsed, body stream ready")
+                      request)
+
+                    ;; End of stream
+                    (nil? line)
+                    (do
+                      (println "End of stream")
+                      request)
+
+                    ;; Continue parsing headers
+                    :else
+                    (recur
+                      (.readLine in)
+                      (cond
+                        (= section :first_line) :headers
+                        :else section)
+                      (parse line section request))))]
+            ;; Dispatch with the input stream available for reading the body
+            (dispatch-request {
+                               :request       parsed-request
+                               :client-socket client-socket
+                               :body-stream   input-stream
+                               }))
           (catch Exception e
-            (println "Error handling HTTP request:" e))
+            (println "Error handling HTTP request:" e)
+            (.printStackTrace e))
           (finally
             (.close in)
             (.close client-socket)))))))
