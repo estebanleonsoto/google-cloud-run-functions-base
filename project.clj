@@ -5,5 +5,5 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.12.3"]
                  [org.clojure/core.async "1.8.741"]]
-  :repl-options {:init-ns google-cloud-run-functions-base.core
+  :repl-options {:init-ns google-cloud-run-functions-base.http-server
                  :port 7888})
