@@ -1,7 +1,6 @@
 (ns google-cloud-run-functions-base.http-server
-  (:require [clojure.core.async :as a :refer [<!! >!! <! >!]]
-            [clojure.string :refer [split trim]]
-            [clojure.pprint :refer [pprint]])
+  (:require [clojure.core.async :as a :refer [<! >!]]
+            [clojure.string :refer [split trim]])
   (:import (java.io DataInputStream ByteArrayOutputStream)
            (java.net ServerSocket)))
 
@@ -32,15 +31,7 @@
    :headers
    (fn [line request]
      (let [[key value] (split line #": " 2)]
-       (assoc-in request [:headers key] value)))
-
-   :body
-   (fn [line request]
-     (update request :body (fnil str "") (str line "\n")))
-
-   :done
-   (fn [_ request]
-     request)})
+       (assoc-in request [:headers key] value)))})
 
 (defn parse
   [line section request]
@@ -56,18 +47,15 @@
         (cond
           (= current-byte -1) nil ; End of stream
           (and (= previous-byte 13) (= current-byte 10)) ; Found \r\n
-          (let [size (.size line-buffer)]
-            (if (zero? size)
-              "" ; Empty line (just \r\n)
-              (String. (.toByteArray line-buffer) 0 (dec size) "UTF-8"))) ; Exclude the \r
+          ;; The \r was never written to buffer, so just convert what's there
+          (String. (.toByteArray line-buffer) "UTF-8")
           :else
           (do
             (when previous-byte (.write line-buffer (int previous-byte)))
             (recur current-byte)))))))
 
-(defn dispatch-request [request-data]
-  (let [{:keys [request client-socket]} request-data
-        out (.getOutputStream client-socket)
+(defn dispatch-request [request client-socket]
+  (let [out (.getOutputStream client-socket)
         response-body (str "Hello! You requested " (:path request) " with method " (:method request) "\n")
         response (str "HTTP/1.1 200 OK\r\n"
                       "Content-Type: text/plain\r\n"
@@ -82,7 +70,10 @@
     (.close out)
     (.close client-socket)))
 
-(defn handle-request [input-stream output-stream]
+(defn- empty-line-after-header? [section line]
+  (and (= section :headers) (empty? line)))
+
+(defn handle-request [input-stream]
   (try
     ;; Read headers line by line
     (loop [line (read-line-from-stream input-stream)
@@ -91,14 +82,16 @@
            request {}]
       (println "(" section "): " "'" line "' isNil?" (nil? line) "; type of section: " (type section))
       (cond
-        ;; Found empty line after headers - need to read body if present
-        (and (= section :headers) (empty? line))
-        (let [content-length (some-> (get-in request [:headers "Content-Length"])
-                                     Integer/parseInt)
-              body-string (when (and content-length (pos? content-length))
+        (empty-line-after-header? section line)
+        (let [content-length (or (some-> (get-in request [:headers "Content-Length"])
+                                         Integer/parseInt)
+                                 0)
+              body-string (if (pos? content-length)
                             (let [buffer (byte-array content-length)]
+                              (print "Reading " content-length " bytes of body")
                               (.readFully input-stream buffer)
-                              (String. buffer "UTF-8")))
+                              (String. buffer "UTF-8"))
+                            "")
               final-request (assoc request :body body-string)]
           (println "Request complete:" final-request)
           final-request)
@@ -106,16 +99,16 @@
         ;; End of stream
         (nil? line)
         (do
-          (println "Se jue! (end of stream)")
+          (println "This should not happen!")
           request)
 
         ;; Continue reading headers
         :else
         (recur
-          (read-line-from-stream input-stream)
-          (inc line-index)
-          (if (= section :first_line) :headers section)
-          (parse line section request))))
+         (read-line-from-stream input-stream)
+         (inc line-index)
+         (if (= section :first_line) :headers section)
+         (parse line section request))))
     (catch Exception e
       (println "Error handling HTTP request:" e))))
 
@@ -125,10 +118,10 @@
   (a/go
     (while true
       (let [client-socket (<! http-read-channel)
-            input-stream (DataInputStream. (.getInputStream client-socket))
-            output-stream (.getOutputStream client-socket)]
+            input-stream (DataInputStream. (.getInputStream client-socket))]
         (println "*Handling HTTP request from" (some-> client-socket .getInetAddress .getHostAddress))
-        (handle-request input-stream output-stream)))))
+        (-> (handle-request input-stream)
+            (dispatch-request client-socket))))))
 
 (defn start-attending-http-requests
   "Starts a routine that attends incoming HTTP requests."
@@ -153,7 +146,7 @@
 
 (defn start
   "Main entry point."
-  [& args]
+  [& _]
   (try
     (setup-request-attending-routine)
     (->
